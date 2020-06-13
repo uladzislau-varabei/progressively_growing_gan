@@ -1,0 +1,26 @@
+# Python/idea folders
+__pycache__
+.idea
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints
+
+# Files with images paths
+*.txt
+
+# Some images
+*.png
+example_images
+
+# User's configs
+configs
+
+# Runtime specific folders
+images
+logs
+tf_logs
+weights
+
+
+
