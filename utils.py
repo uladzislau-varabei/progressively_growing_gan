@@ -261,7 +261,7 @@ def prepare_gpu():
     elif os_name == OS_WIN:
         print(os_message + 'memory limit option is used\n')
         set_memory_limit = True
-        memory_limit = 1000
+        memory_limit = 7800
     else:
         print(
             os_message + f'GPU can only be configured for {OS_LINUX}|{OS_WIN}, '
