@@ -40,7 +40,7 @@ from networks import Generator, Discriminator
 
 class ProGAN():
 
-    def __init__(self, config, mode=DEFAULT_MODE, images_paths=None, res=None,
+    def __init__(self, config, mode=DEFAULT_MODE, images_paths=None, res=None, stage=None,
                  single_process_training=False):
 
         self.target_resolution = config[TARGET_RESOLUTION]
@@ -119,8 +119,6 @@ class ProGAN():
         self.G_object = Generator(config)
         self.D_object = Discriminator(config)
 
-        self.G_object.initialize_G_model()
-        self.D_object.initialize_D_model()
         if self.use_Gs:
             cpu_config = config
             cpu_config[DATA_FORMAT] = NHWC_FORMAT
@@ -129,20 +127,59 @@ class ProGAN():
             self.Gs_valid_latents = tf.transpose(self.valid_latents, self.toNHWC_axis)
             self.Gs_object = Generator(cpu_config)
 
-            # Save memory on GPU
-            with tf.device('/CPU:0'):
-                self.initialize_Gs_model()
-
         if mode == INFERENCE_MODE:
-            # No need to do anything. Weights can be loaded explicitly
-            pass
+            self.initialize_models()
         elif mode == TRAIN_MODE:
             if single_process_training:
+                self.initialize_models()
                 self.create_images_generators(config)
                 self.initialize_optimizers(create_all_variables=True)
             else:
+                self.initialize_models(res, stage)
                 self.create_images_generator(config, res, images_paths)
                 self.initialize_optimizers(create_all_variables=False)
+
+    def initialize_models(self, model_res=None, stage=None):
+        self.G_object.initialize_G_model(model_res=model_res, mode=stage)
+        self.D_object.initialize_D_model(model_res=model_res, mode=stage)
+        if self.use_Gs:
+            # Save memory on GPU
+            with tf.device('/CPU:0'):
+                self.initialize_Gs_model(model_res=model_res, mode=stage)
+
+    def initialize_Gs_model(self, model_res=None, mode=None):
+        start_time = time.time()
+        print('Initializing smoothed generator...')
+
+        if model_res is not None:
+            self.Gs_object.initialize_G_model(model_res=model_res, mode=mode)
+
+            for res in range(self.start_resolution_log2, model_res + 1):
+                self.Gs_object.G_blocks[res].set_weights(
+                    self.G_object.G_blocks[res].get_weights()
+                )
+                # A terrible way to check if toRGB layer is built. Should change it later
+                try:
+                    lod = level_of_details(res, self.resolution_log2)
+                    self.Gs_object.toRGB_layers[lod].set_weights(
+                        self.G_object.toRGB_layers[lod].get_weights()
+                    )
+                except ValueError:
+                    logging.info(f'toRGB layer is not built for res={res}')
+        else:
+            self.Gs_object.initialize_G_model(summary_model=False)
+
+            for res in range(self.start_resolution_log2, self.resolution_log2 + 1):
+                self.Gs_object.G_blocks[res].set_weights(
+                    self.G_object.G_blocks[res].get_weights()
+                )
+                lod = level_of_details(res, self.resolution_log2)
+                self.Gs_object.toRGB_layers[lod].set_weights(
+                    self.G_object.toRGB_layers[lod].get_weights()
+                )
+
+        total_time = time.time() - start_time
+        logging.info(f'Smoothed generator initialized in {total_time:.3f} seconds!')
 
     def trace_graphs(self):
         self.G_object.trace_G_graphs(self.summary_writers, self.writers_dirs)
@@ -320,24 +357,6 @@ class ProGAN():
 
         total_time = time.time() - start_time
         logging.info(f'Optimizers initialized in {total_time:.3f} seconds!')
-
-    def initialize_Gs_model(self):
-        start_time = time.time()
-        print('Initializing smoothed generator...')
-
-        self.Gs_object.initialize_G_model(summary_model=False)
-
-        for res in range(self.start_resolution_log2, self.resolution_log2 + 1):
-            self.Gs_object.G_blocks[res].set_weights(
-                self.G_object.G_blocks[res].get_weights()
-            )
-            lod = level_of_details(res, self.resolution_log2)
-            self.Gs_object.toRGB_layers[lod].set_weights(
-                self.G_object.toRGB_layers[lod].get_weights()
-            )
-
-        total_time = time.time() - start_time
-        logging.info(f'Smoothed generator initialized in {total_time:.3f} seconds!')
 
     @tf.function
     def smooth_net_weights(self, Gs_model, G_model, beta):

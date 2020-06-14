@@ -104,7 +104,7 @@ def run_train_mode(config, images_paths, res, mode):
     logging.info(f'Training for res={res} and mode={mode} uses PID={pid}')
     prepare_gpu()
     ProGAN_model = ProGAN(
-        config, mode=TRAIN_MODE, images_paths=images_paths, res=res
+        config, mode=TRAIN_MODE, images_paths=images_paths, res=res, stage=mode
     )
     ProGAN_model.train_stage(res=res, mode=mode)
 

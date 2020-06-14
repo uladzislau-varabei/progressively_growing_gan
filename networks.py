@@ -302,21 +302,28 @@ class Generator():
         )
         return model
 
-    def initialize_G_model(self, summary_model=False):
-        res = self.resolution_log2
-        batch_size = self.batch_sizes[str(res)]
-
-        latents = tf.random.normal(
-            shape=(batch_size,) + self.z_dim, stddev=0.05, dtype=self.dtype
-        )
-
-        for res in range(self.start_resolution_log2, self.resolution_log2 + 1):
-            G_model = self.create_G_model(res, mode=FADE_IN_MODE)
+    def initialize_G_model(self, summary_model=False, model_res=None, mode=None):
+        if model_res is not None:
+            batch_size = self.batch_sizes[str(model_res)]
+            latents = tf.random.normal(
+                shape=(batch_size,) + self.z_dim, stddev=0.05, dtype=self.dtype
+            )
+            G_model = self.create_G_model(model_res, mode=mode)
 
             _ = G_model(latents)
-            if res == self.resolution_log2 and summary_model:
-                logging.info('\nThe biggest Generator:\n')
-                G_model.summary(print_fn=logging.info)
+        else:
+            for res in range(self.start_resolution_log2, self.resolution_log2 + 1):
+                batch_size = self.batch_sizes[str(res)]
+                latents = tf.random.normal(
+                    shape=(batch_size,) + self.z_dim, stddev=0.05, dtype=self.dtype
+                )
+
+                G_model = self.create_G_model(res, mode=FADE_IN_MODE)
+
+                _ = G_model(latents)
+                if res == self.resolution_log2 and summary_model:
+                    logging.info('\nThe biggest Generator:\n')
+                    G_model.summary(print_fn=logging.info)
 
         if not summary_model:
             print('G model built')
@@ -649,20 +656,30 @@ class Discriminator():
         )
         return D_model
 
-    def initialize_D_model(self, summary_model=False):
-        for res in range(self.start_resolution_log2, self.resolution_log2 + 1):
-            batch_size = self.batch_sizes[str(res)]
+    def initialize_D_model(self, summary_model=False, model_res=None, mode=None):
+        if model_res is not None:
+            batch_size = self.batch_sizes[str(model_res)]
             images = tf.random.normal(
-                shape=(batch_size,) + self.D_input_shape(res),
+                shape=(batch_size,) + self.D_input_shape(model_res),
                 stddev=0.05, dtype=self.dtype
             )
 
-            D_model = self.create_D_model(res, mode=FADE_IN_MODE)
+            D_model = self.create_D_model(model_res, mode=mode)
             _ = D_model(images)
+        else:
+            for res in range(self.start_resolution_log2, self.resolution_log2 + 1):
+                batch_size = self.batch_sizes[str(res)]
+                images = tf.random.normal(
+                    shape=(batch_size,) + self.D_input_shape(res),
+                    stddev=0.05, dtype=self.dtype
+                )
 
-            if res == self.resolution_log2 and summary_model:
-                logging.info('\nThe biggest Discriminator:\n')
-                D_model.summary(print_fn=logging.info)
+                D_model = self.create_D_model(res, mode=FADE_IN_MODE)
+                _ = D_model(images)
+
+                if res == self.resolution_log2 and summary_model:
+                    logging.info('\nThe biggest Discriminator:\n')
+                    D_model.summary(print_fn=logging.info)
 
         if not summary_model:
             print('D model built')

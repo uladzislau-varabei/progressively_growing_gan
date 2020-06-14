@@ -319,7 +319,7 @@ class Fused_Upscale2d_Scaled_Conv2d(Layer):
         self.std = self.gain / np.sqrt(self.fan_in)
         if self.use_wscale:
             self.wscale = self.std
-            initializer = select_initializer(self.truncate_weights, self.std)
+            initializer = select_initializer(self.truncate_weights, 1.)
         else:
             initializer = select_initializer(self.truncate_weights, self.std)
         self.w = self.add_weight(
