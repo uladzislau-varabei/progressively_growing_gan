@@ -48,6 +48,8 @@ MODEL_NAME = 'model_name'
 # Note: it was meant to be used if model was to be saved not in script directory,
 # only consider using it if model is trained on server, otherwise just skip it
 STORAGE_PATH = 'storage_path'
+# Max models to keep
+MAX_MODELS_TO_KEEP = 'max_models_to_keep'
 # How often to write summaries
 SUMMARY_EVERY = 'summary_every'
 # How often to save models weights
@@ -62,6 +64,12 @@ STABILIZATION_IMAGES = 'stabilization_images'
 G_LEARNING_RATE = 'G_learning_rate'
 # Base learning rate for discriminator
 D_LEARNING_RATE = 'D_learning_rate'
+# Resolution specific learning rate for generator
+# Note: keys should be given as log2(image_resolution)
+G_LEARNING_RATE_DICT = 'G_learning_rate_dict'
+# Resolution specific learning rate for discriminator
+# Note: keys should be given as log2(image_resolution)
+D_LEARNING_RATE_DICT = 'D_learning_rate_dict'
 # Adam beta 1 for generator and discriminator
 ADAM_BETA1 = 'adam_beta1'
 # Adam beta 2 for generator and discriminator
@@ -77,21 +85,27 @@ MAX_CACHE_RES = 'max_cache_res'
 IMAGES_PATHS_FILENAME = 'images_paths_filename'
 # Target resolution (should be a power of 2, e.g. 128, 256, etc.)
 TARGET_RESOLUTION = 'target_resolution'
+# Start resolution (should be a power of 2, e.g. 128, 256, etc.)
+# Note: to disable progressive growing set value equal to TARGET_RESOLUTION
+START_RESOLUTION = 'start_resolution'
 # Size of latent vector
 LATENT_SIZE = 'latent_size'
 # Apply pixel normalization to latent vector?
 NORMALIZE_LATENTS = 'normalize_latents'
 # Data type
-# Note: it is not recommended to change it to float16, just use float32
+# Note: it is not recommended to change it to float16, just use float32 and mixed precision training if needed
 DTYPE = 'dtype'
+# Use mixed precision training?
+USE_MIXED_PRECISION = 'use_mixed_precision'
+# Use XLA compiler?
+# Note: currently support is not implemented, so this option has no affect
+USE_XLA = 'use_XLA'
 # Use bias layers?
 USE_BIAS = 'use_bias'
 # Use equalized learning rates?
 USE_WSCALE = 'use_wscale'
 # Use pixel normalization in generator?
 USE_PIXELNORM = 'use_pixelnorm'
-# Weights initialization technique: one of He, LeCun (should only be used with Selu)
-WEIGHTS_INIT_MODE = 'weights_init_mode'
 # Truncate weights?
 TRUNCATE_WEIGHTS = 'truncate_weights'
 # Override gain in projecting layer of generator to match the original paper implementation?
@@ -100,17 +114,23 @@ OVERRIDE_G_PROJECTING_GAIN = 'override_G_projecting_gain'
 G_FUSED_SCALE = 'G_fused_scale'
 # Use fused layers in discriminator?
 D_FUSED_SCALE = 'D_fused_scale'
+# Weights initialization technique for generator: one of He, LeCun (should only be used with Selu)
+# Note: gain is selected based on activation, so only use this option if default value is not valid
+G_WEIGHTS_INIT_MODE = 'G_weights_init_mode'
+# Weights initialization technique for discriminator: one of He, LeCun (should only be used with Selu)
+# Note: gain is selected based on activation, so only use this option if default value is not valid
+D_WEIGHTS_INIT_MODE = 'D_weights_init_mode'
 # Activation function in generator
 G_ACTIVATION = 'G_activation'
 # Activation function on discriminator
 D_ACTIVATION = 'D_activation'
 # Kernel size of convolutional layers in generator
 # Note: only change default value if there is enough video memory,
-# though values higher than 3 will lead to increasing training time
+# as values higher than 3 will lead to increasing training time
 G_KERNEL_SIZE = 'G_kernel_size'
 # Kernel size of convolutional layers in generator
 # Note: only change default value if there is enough video memory,
-# though values higher than 3 will lead to increasing training time
+# as values higher than 3 will lead to increasing training time
 D_KERNEL_SIZE = 'D_kernel_size'
 # Overall multiplier for the number of feature maps of generator
 G_FMAP_BASE = 'G_fmap_base'
@@ -129,45 +149,62 @@ MBSTD_GROUP_SIZE = 'mbstd_group_size'
 # Number of filters in a projecting layer of discriminator
 # Note: it should only be used if latent size is different from 512,
 # it was meant to keep number of parameters in generator and discriminator at roughly
-# the same layer
+# the same level
 D_PROJECTING_NF = 'D_projecting_nf'
 # Use smoothing og generator weights?
 USE_G_SMOOTHING = 'use_G_smoothing'
 # Beta for smoothing weights of generator
 G_SMOOTHING_BETA = 'G_smoothed_beta'
 # Number of parallel calls to dataset
+# Note: a good choice is to use a number of cpu cores
 DATASET_N_PARALLEL_CALLS = 'dataset_n_parallel_calls'
 # Number of prefetched batches for dataset
 DATASET_N_PREFETCHED_BATCHES = 'dataset_n_prefetched_batches'
 # Maximum number of images to be used for training
 DATASET_N_MAX_IMAGES = 'dataset_max_images'
 # Shuffle dataset every time it is finished?
+# Note: on Windows one might need to set it to False
 SHUFFLE_DATASET = 'shuffle_dataset'
+# Enable image augmentations?
+MIRROR_AUGMENT = 'mirror_augment'
+
 
 DEFAULT_STORAGE_PATH = None
+DEFAULT_MAX_MODELS_TO_KEEP = 3
+DEFAULT_SUMMARY_EVERY = 500
+DEFAULT_SAVE_MODEL_EVERY = 5000
+DEFAULT_SAVE_IMAGES_EVERY = 500
 DEFAULT_MAX_CACHE_RES = -1
+DEFAULT_START_RESOLUTION = 4
+DEFAULT_NORMALIZE_LATENTS = True
 DEFAULT_USE_BIAS = True
 DEFAULT_USE_WSCALE = True
 DEFAULT_USE_PIXELNORM = True
-DEFAULT_WEIGHTS_INIT_MODE = HE_INIT
 DEFAULT_TRUNCATE_WEIGHTS = False
 DEFAULT_OVERRIDE_G_PROJECTING_GAIN = True
 DEFAULT_G_FUSED_SCALE = True
 DEFAULT_D_FUSED_SCALE = True
 DEFAULT_DTYPE = 'float32'
+DEFAULT_USE_MIXED_PRECISION = True
+DEFAULT_USE_XLA = True
+DEFAULT_G_ACTIVATION = 'leaky_relu'
+DEFAULT_D_ACTIVATION = 'leaky_relu'
 DEFAULT_G_KERNEL_SIZE = 3
 DEFAULT_D_KERNEL_SIZE = 3
 DEFAULT_G_LEARNING_RATE = 0.001
 DEFAULT_D_LEARNING_RATE = 0.001
+DEFAULT_G_LEARNING_RATE_DICT = {}
+DEFAULT_D_LEARNING_RATE_DICT = {}
 DEFAULT_ADAM_BETA1 = 0.
 DEFAULT_ADAM_BETA2 = 0.99
-DEFAULT_RESET_OPT_STATE_FOR_NEW_LOD = False
+DEFAULT_RESET_OPT_STATE_FOR_NEW_LOD = True
 DEFAULT_USE_G_SMOOTHING = True
 DEFAULT_G_SMOOTHING_BETA = 0.999
 DEFAULT_DATASET_N_PARALLEL_CALLS = 4
 DEFAULT_DATASET_N_PREFETCHED_BATCHES = 4
 DEFAULT_DATASET_N_MAX_IMAGES = -1
-DEFAULT_SHUFFLE_DATASET = False
+DEFAULT_SHUFFLE_DATASET = True
+DEFAULT_MIRROR_AUGMENT = True
 
 # Note: by default Generator and Discriminator
 # use the same values for these constants
@@ -177,20 +214,63 @@ DEFAULT_FMAP_DECAY = 1.0
 DEFAULT_FMAP_MAX = 512
 
 HE_GAIN = np.sqrt(2.)
-GAIN = {
-    LECUN_INIT: 1.,
+LECUN_GAIN = 1.
+
+GAIN_INIT_MODE_DICT = {
+    LECUN_INIT: LECUN_GAIN,
     HE_INIT: HE_GAIN
 }
 
-activation_funs_dict = {
+GAIN_ACTIVATION_FUNS_DICT = {
+    'relu': HE_GAIN,
+    'leaky_relu': HE_GAIN,
+    'swish': HE_GAIN,
+    # A special gain is to be used by default
+    'selu': LECUN_GAIN
+}
+
+ACTIVATION_FUNS_DICT = {
     'relu': tf.nn.relu,
     'leaky_relu': tf.nn.leaky_relu,
     'selu': tf.nn.selu,
     'swish': tf.nn.swish
 }
 
+# Activation function which (might?) need to use float32 dtype
+FP32_ACTIVATIONS = ['selu']
+
 # For jupyter notebooks
 EXAMPLE_IMGS_DIR = 'example_images'
+
+
+def fp32(*values):
+    if len(values) == 1:
+        return tf.cast(values[0], tf.float32)
+    return [tf.cast(v, tf.float32) for v in values]
+
+
+def scale_loss(optimizer, loss, mixed_precision):
+    return optimizer.get_scaled_loss(loss) if mixed_precision else loss
+
+
+def unscale_grads(optimizer, grads, mixed_precision):
+    return optimizer.get_unscaled_gradients(grads) if mixed_precision else grads
+
+
+def custom_unscale_grads_in_mixed_precision(optimizer, grads, vars):
+    # Note: works inside tf.function
+    # All grads are casted to fp32
+    dtype = tf.float32
+    coef = fp32(1. / optimizer._loss_scale())
+
+    def unscale_grad(g, v):
+        return fp32(g) * coef if g is not None else (tf.zeros_like(v, dtype=dtype), v)
+
+    grads_array = tf.TensorArray(dtype, len(grads))
+    for i in tf.range(len(grads)):
+        grads_array = grads_array.write(i, unscale_grad(grads[i], vars[i]))
+
+    return grads_array.stack()
 
 
 def validate_data_format(data_format):
@@ -261,7 +341,7 @@ def prepare_gpu():
     elif os_name == OS_WIN:
         print(os_message + 'memory limit option is used\n')
         set_memory_limit = True
-        memory_limit = 7800
+        memory_limit = 8000
     else:
         print(
             os_message + f'GPU can only be configured for {OS_LINUX}|{OS_WIN}, '
@@ -283,8 +363,7 @@ def prepare_gpu():
                 )
                 logical_gpus = tf.config.experimental.list_logical_devices('GPU')
                 print(
-                    f"\nPhysical GPUs: {len(physical_gpus)}, "
-                    f"logical GPUs: {len(logical_gpus)}"
+                    f"\nPhysical GPUs: {len(physical_gpus)}, logical GPUs: {len(logical_gpus)}"
                 )
                 print(f'Set memory limit to {memory_limit} Mbs\n')
             except RuntimeError as e:
@@ -422,12 +501,13 @@ def load_model(model, model_name, model_type, res, resolution_log2,
     return model
 
 
-def remove_old_models(model_name, res, stage, storage_path=DEFAULT_STORAGE_PATH):
+def remove_old_models(model_name, res, stage, max_models_to_keep, storage_path=DEFAULT_STORAGE_PATH):
     """
     model_name - name of configuration model
     model_type - one of [GENERATOR_NAME, DISCRIMINATOR_NAME],
                  used as a separate dir level
     res - current resolution
+    max_models_to_keep - max number of models to keep
     storage_path - optional prefix path
     """
     # step and model_type are not used, so jut use valid values
@@ -448,7 +528,7 @@ def remove_old_models(model_name, res, stage, storage_path=DEFAULT_STORAGE_PATH)
         key=lambda x: int(x.split('step')[1])
     )
     # Remove weights for all steps except the last one
-    for p in sorted_steps_paths[:-1]:
+    for p in sorted_steps_paths[:-max_models_to_keep]:
         shutil.rmtree(p)
         logging.info(f'Removed weights for path={p}')
 

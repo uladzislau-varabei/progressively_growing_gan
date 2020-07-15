@@ -1,5 +1,7 @@
 import tensorflow as tf
 
+from utils import fp32, scale_loss, custom_unscale_grads_in_mixed_precision
+
 
 @tf.function
 def G_loss_fn(fake_scores, write_summary, step):
@@ -11,7 +13,7 @@ def G_loss_fn(fake_scores, write_summary, step):
 
 
 @tf.function
-def D_loss_fn(D_model, real_scores, real_images, fake_scores, fake_images,
+def D_loss_fn(D_model, optimizer, mixed_precision, real_scores, real_images, fake_scores, fake_images,
               write_summary, step,
               wgan_lambda=10.0,  # Weight for the gradient penalty term
               wgan_epsilon=0.001,  # Weight for the epsilon term, \epsilon_{drift}
@@ -30,8 +32,13 @@ def D_loss_fn(D_model, real_scores, real_images, fake_scores, fake_images,
     inter_samples = alpha * real_images + (1. - alpha) * fake_images
     with tf.GradientTape(watch_accessed_variables=False) as tape_gp:
         tape_gp.watch(inter_samples)
-        inter_scores = D_model(inter_samples)
-    gp_grads = tape_gp.gradient(inter_scores, inter_samples)
+        inter_samples_loss = tf.reduce_sum(fp32(D_model(inter_samples)))
+        inter_samples_loss = scale_loss(optimizer, inter_samples_loss, mixed_precision)
+    gp_grads = tape_gp.gradient(inter_samples_loss, inter_samples)
+    # Default grads unscaling doesn't work inside this function,
+    # though it is ok to use it inside train steps
+    if mixed_precision:
+        gp_grads = custom_unscale_grads_in_mixed_precision(optimizer, gp_grads, inter_samples)
     gp_grads_norm = tf.sqrt(
         tf.reduce_sum(tf.square(gp_grads), axis=[1, 2, 3])
     )

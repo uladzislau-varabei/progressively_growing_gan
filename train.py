@@ -13,7 +13,7 @@ import numpy as np
 from utils import LOGS_DIR, TRAIN_MODE, INFERENCE_MODE,\
     FADE_IN_MODE, STABILIZATION_MODE,\
     DATASET_N_MAX_IMAGES, DEFAULT_DATASET_N_MAX_IMAGES,\
-    IMAGES_PATHS_FILENAME, TARGET_RESOLUTION
+    IMAGES_PATHS_FILENAME, TARGET_RESOLUTION, START_RESOLUTION, DEFAULT_START_RESOLUTION
 from utils import prepare_gpu
 from model import ProGAN
 
@@ -67,15 +67,12 @@ def load_config(config_path):
 
 
 def load_images_paths(config):
-    dataset_n_max_images = config.get(
-        DATASET_N_MAX_IMAGES, DEFAULT_DATASET_N_MAX_IMAGES
-    )
-
     images_paths_filename = config[IMAGES_PATHS_FILENAME]
     with open(images_paths_filename, 'r') as f:
         file_lines = f.readlines()
     images_paths = [x.strip() for x in file_lines]
 
+    dataset_n_max_images = config.get(DATASET_N_MAX_IMAGES, DEFAULT_DATASET_N_MAX_IMAGES)
     if dataset_n_max_images > 0:
         print(f'Dataset n max images: {dataset_n_max_images}')
         if len(images_paths) > dataset_n_max_images:
@@ -114,12 +111,14 @@ def train_model(config):
     resolution_log2 = int(np.log2(target_resolution))
     assert target_resolution == 2 ** resolution_log2 and target_resolution >= 4
 
-    start_resolution_log2 = 2
+    start_resolution = config.get(START_RESOLUTION, DEFAULT_START_RESOLUTION)
+    start_resolution_log2 = int(np.log2(start_resolution))
+    assert start_resolution == 2 ** start_resolution_log2 and start_resolution >= 4
 
     images_paths = load_images_paths(config)
 
     run_process(target=trace_graphs, args=(config,))
-    sleep(5)
+    sleep(3)
 
     train_start_time = time.time()
 
@@ -136,14 +135,14 @@ def train_model(config):
                 target=run_train_mode,
                 args=(config, images_paths, res, FADE_IN_MODE)
             )
-            sleep(3)
+            sleep(1)
 
         # Stabilization stage
         run_process(
             target=run_train_mode,
             args=(config, images_paths, res, STABILIZATION_MODE)
         )
-        sleep(3)
+        sleep(1)
 
         res_total_time = time.time() - res_start_time
         logging.info(f'Training model of resolution {res} took {res_total_time:.3f} seconds\n\n')

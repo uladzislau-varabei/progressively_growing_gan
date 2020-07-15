@@ -25,6 +25,7 @@ python train.py --config=path_to_config (e.g. --config=default_config.json)
 
 To get maximum performance one should prefer training each model in a separate process (`single_process_training` in `train.py`), 
 as in this case all GPU resources are released after process is finished.  <br>
+Another way to incease performance is to use mixed precision training, which not just speeds operations up (especially on Nvidia cards with compute capability 7.0 or higher, e.g. Turing GPUs), but also allows to increase batch size. <br>
 *Note:* for now restoring/saving optimizer state is not implemented, so if optimizers states should not be reset a model must be trained in a single process. By default models in official implementation reset oprimizer state for new level of details.
 
 ## GPU memory usage
@@ -38,12 +39,11 @@ By default on Linux memory_growth option is used, while on Windows memory is lim
 
 ## System requirements
 
-- Code was tested on Linux and Windows. Though when running on Windows you can face additional warning messages from Tensorflow, also, it takes more time to start training (usually up to several additional minutes for each stage), however, it doesn't effect training process
+- Code was tested on Linux and Windows. Though when running on Windows you can face additional warning messages from Tensorflow, also, it takes more time to start training (usually up to several additional minutes for each stage), however, it doesn't affect training process
 - Requirements can be installed from `conda_environment.yml`(`conda env create -f conda_environment.yml`)
 
 
 ## Further improvements
-- Mixed precision training (for now it is possible to train models in `float16`, but since loss is not scaled, training usually fails at the very beginning)
 - Saving/restoring optimizers states
-- Stage specific learning rates
+- Multi GPU support
 

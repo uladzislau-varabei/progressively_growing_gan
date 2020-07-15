@@ -113,7 +113,7 @@ def convert_to_pil_image_with_title(img_array, title):
     return img
 
 
-def fast_save_grid(out_dir, fname, images, nrows, ncols, padding, title):
+def fast_save_grid(out_dir, fname, images, nrows, ncols, padding, title, save_in_jpg=False):
     img_grid = fast_make_grid(images, nrows=nrows, ncols=ncols, padding=padding)
     if title is not None:
         img = convert_to_pil_image_with_title(img_grid, title)
@@ -123,4 +123,7 @@ def fast_save_grid(out_dir, fname, images, nrows, ncols, padding, title):
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    img.save(os.path.join(out_dir, fname + '.jpeg'))
+    if save_in_jpg:
+        img.save(os.path.join(out_dir, fname + '.jpg'), 'JPEG', quality=95)
+    else:
+        img.save(os.path.join(out_dir, fname + '.png'), 'PNG')

@@ -3,7 +3,7 @@ import tensorflow as tf
 from tensorflow.keras.layers import Layer
 
 from utils import DEFAULT_DTYPE, DEFAULT_DATA_FORMAT, NCHW_FORMAT, NHWC_FORMAT,\
-    validate_data_format, HE_GAIN, DEFAULT_TRUNCATE_WEIGHTS
+    validate_data_format, HE_GAIN, DEFAULT_TRUNCATE_WEIGHTS, DEFAULT_USE_XLA
 
 
 WEIGHTS_NAME = 'weights'
@@ -32,7 +32,8 @@ class Scaled_Conv2d(Layer):
 
     def __init__(self, fmaps, kernel_size, stride=1, gain=HE_GAIN,
                  use_wscale=True, truncate_weights=DEFAULT_TRUNCATE_WEIGHTS,
-                 dtype=DEFAULT_DTYPE, data_format=DEFAULT_DATA_FORMAT, name=None):
+                 dtype=DEFAULT_DTYPE, use_xla=DEFAULT_USE_XLA,
+                 data_format=DEFAULT_DATA_FORMAT, name=None):
         super(Scaled_Conv2d, self).__init__(dtype=dtype, name=name)
         validate_data_format(data_format)
         self.data_format = data_format
@@ -42,6 +43,7 @@ class Scaled_Conv2d(Layer):
         self.gain = gain
         self.use_wscale = use_wscale
         self.truncate_weights = truncate_weights
+        self.use_xla = use_xla
 
     def build(self, input_shape):
         if self.data_format == NCHW_FORMAT:
@@ -60,12 +62,12 @@ class Scaled_Conv2d(Layer):
             initializer = select_initializer(self.truncate_weights, 1.)
         else:
             initializer = select_initializer(self.truncate_weights, self.std)
+
         self.w = self.add_weight(
             name=WEIGHTS_NAME,
             shape=self.wshape,
             initializer=initializer,
-            trainable=True,
-            dtype=self.dtype
+            trainable=True
         )
 
     @tf.function
@@ -82,17 +84,18 @@ class Scaled_Conv2d(Layer):
 
 class Scaled_Linear(Layer):
 
-    def __init__(self, units, use_bias=True, gain=HE_GAIN, use_wscale=True,
-                 truncate_weights=DEFAULT_TRUNCATE_WEIGHTS, dtype=DEFAULT_DTYPE,
+    def __init__(self, units, gain=HE_GAIN,
+                 use_wscale=True, truncate_weights=DEFAULT_TRUNCATE_WEIGHTS,
+                 dtype=DEFAULT_DTYPE, use_xla=DEFAULT_USE_XLA,
                  data_format=DEFAULT_DATA_FORMAT, name=None):
         super(Scaled_Linear, self).__init__(dtype=dtype, name=name)
         validate_data_format(data_format)
         self.data_format = data_format
         self.units = units
-        self.use_bias = use_bias
         self.gain = gain
         self.use_wscale = use_wscale
         self.truncate_weights = truncate_weights
+        self.use_xla = use_xla
 
     def build(self, input_shape):
         self.fan_in = np.prod(input_shape[1:])
@@ -103,12 +106,12 @@ class Scaled_Linear(Layer):
             initializer = select_initializer(self.truncate_weights, 1.)
         else:
             initializer = select_initializer(self.truncate_weights, self.std)
+
         self.w = self.add_weight(
             name=WEIGHTS_NAME,
             shape=[self.fan_in, self.units],
             initializer=initializer,
-            trainable=True,
-            dtype=self.dtype
+            trainable=True
         )
 
     @tf.function
@@ -124,10 +127,12 @@ class Scaled_Linear(Layer):
 
 
 class Bias(Layer):
-    def __init__(self, dtype=DEFAULT_DTYPE, data_format=DEFAULT_DATA_FORMAT, name=None):
+    def __init__(self, dtype=DEFAULT_DTYPE, use_xla=DEFAULT_USE_XLA,
+                 data_format=DEFAULT_DATA_FORMAT, name=None):
         super(Bias, self).__init__(dtype=dtype, name=name)
         validate_data_format(data_format)
         self.data_format = data_format
+        self.use_xla = use_xla
 
     def build(self, input_shape):
         self.is_linear_bias = len(input_shape) == 2
@@ -146,8 +151,7 @@ class Bias(Layer):
             name=BIASES_NAME,
             shape=[self.units],
             initializer=biases_init,
-            trainable=True,
-            dtype=self.dtype
+            trainable=True
         )
 
     @tf.function
@@ -161,11 +165,13 @@ class Bias(Layer):
 
 class Upscale2d(Layer):
 
-    def __init__(self, factor, dtype=DEFAULT_DTYPE, data_format=DEFAULT_DATA_FORMAT, name=None):
+    def __init__(self, factor, dtype=DEFAULT_DTYPE, use_xla=DEFAULT_USE_XLA,
+                 data_format=DEFAULT_DATA_FORMAT, name=None):
         super(Upscale2d, self).__init__(dtype=dtype, name=name)
         validate_data_format(data_format)
         self.data_format = data_format
         self.factor = factor
+        self.use_xla = use_xla
 
     @tf.function
     def call(self, x, *args, **kwargs):
@@ -191,7 +197,8 @@ class Upscale2d(Layer):
 
 class Downscale2d(Layer):
 
-    def __init__(self, factor, dtype=DEFAULT_DTYPE, data_format=DEFAULT_DATA_FORMAT, name=None):
+    def __init__(self, factor, dtype=DEFAULT_DTYPE, use_xla=DEFAULT_USE_XLA,
+                 data_format=DEFAULT_DATA_FORMAT, name=None):
         super(Downscale2d, self).__init__(dtype=dtype, name=name)
         validate_data_format(data_format)
         self.data_format = data_format
@@ -200,6 +207,7 @@ class Downscale2d(Layer):
         elif self.data_format == NHWC_FORMAT:
             self.ksize = [1, factor, factor, 1]
         self.factor = factor
+        self.use_xla = use_xla
 
     @tf.function
     def call(self, x, *args, **kwargs):
@@ -213,8 +221,8 @@ class Downscale2d(Layer):
 
 class Pixel_Norm(Layer):
 
-    def __init__(self, dtype=DEFAULT_DTYPE, data_format=DEFAULT_DATA_FORMAT,
-                 epsilon=1e-8, name=None):
+    def __init__(self, dtype=DEFAULT_DTYPE, use_xla=DEFAULT_USE_XLA,
+                 data_format=DEFAULT_DATA_FORMAT, name=None):
         super(Pixel_Norm, self).__init__(dtype=dtype, name=name)
         validate_data_format(data_format)
         self.data_format = data_format
@@ -222,7 +230,8 @@ class Pixel_Norm(Layer):
             self.channel_axis = 1
         elif self.data_format == NHWC_FORMAT:
             self.channel_axis = 3
-        self.epsilon = epsilon
+        self.epsilon = 1e-8 if self._dtype_policy.compute_dtype == 'float32' else 1e-4
+        self.use_xla = use_xla
 
     @tf.function
     def call(self, x, *args, **kwargs):
@@ -233,11 +242,13 @@ class Pixel_Norm(Layer):
 
 class Minibatch_StdDev(Layer):
 
-    def __init__(self, group_size, dtype=DEFAULT_DTYPE, data_format=DEFAULT_DATA_FORMAT, name=None):
+    def __init__(self, group_size, dtype=DEFAULT_DTYPE, use_xla=DEFAULT_USE_XLA,
+                 data_format=DEFAULT_DATA_FORMAT, name=None):
         super(Minibatch_StdDev, self).__init__(dtype=dtype, name=name)
         validate_data_format(data_format)
         self.data_format = data_format
         self.group_size = group_size
+        self.use_xla = use_xla
 
     @tf.function
     def call(self, x, *args, **kwargs):
@@ -272,13 +283,15 @@ class Minibatch_StdDev(Layer):
 class Weighted_sum(Layer):
     def __init__(self, dtype=DEFAULT_DTYPE, name=None):
         super(Weighted_sum, self).__init__(dtype=dtype, name=name)
+        # Note: for mixed precision training constants can have float16 dtype
         self.alpha =self.add_weight(
             name='alpha',
             initializer=tf.constant_initializer(0.),
             trainable=False,
-            dtype=self.dtype
+            dtype=self._dtype_policy.compute_dtype,
+            experimental_autocast=False
         )
-        self.one = tf.constant(1., dtype=self.dtype, name='One')
+        self.one = tf.constant(1., dtype=self._dtype_policy.compute_dtype, name='One')
 
     # Avoid using tf.function or alpha will be compiled (if it no set as non trainable weight)
     def call(self, inputs, *args, **kwargs):
@@ -291,7 +304,8 @@ class Fused_Upscale2d_Scaled_Conv2d(Layer):
 
     def __init__(self, fmaps, kernel_size, gain=HE_GAIN,
                  use_wscale=True, truncate_weights=DEFAULT_TRUNCATE_WEIGHTS,
-                 dtype=DEFAULT_DTYPE, data_format=DEFAULT_DATA_FORMAT, name=None):
+                 dtype=DEFAULT_DTYPE, use_xla=DEFAULT_USE_XLA,
+                 data_format=DEFAULT_DATA_FORMAT, name=None):
         super(Fused_Upscale2d_Scaled_Conv2d, self).__init__(dtype=dtype, name=name)
         assert kernel_size >= 1 and kernel_size % 2 == 1
         validate_data_format(data_format)
@@ -301,6 +315,7 @@ class Fused_Upscale2d_Scaled_Conv2d(Layer):
         self.gain = gain
         self.use_wscale = use_wscale
         self.truncate_weights = truncate_weights
+        self.use_xla = use_xla
 
     def build(self, input_shape):
         if self.data_format == NCHW_FORMAT:
@@ -322,12 +337,12 @@ class Fused_Upscale2d_Scaled_Conv2d(Layer):
             initializer = select_initializer(self.truncate_weights, 1.)
         else:
             initializer = select_initializer(self.truncate_weights, self.std)
+
         self.w = self.add_weight(
             name=WEIGHTS_NAME,
             shape=self.wshape,
             initializer=initializer,
-            trainable=True,
-            dtype=self.dtype
+            trainable=True
         )
 
     @tf.function
@@ -349,12 +364,13 @@ class Fused_Upscale2d_Scaled_Conv2d(Layer):
 
 # Fused conv2d + downscale2d.
 # Faster and uses less memory than performing the operations separately.
-class Fused_Scaled_Conv2d_Downsacle2d(Layer):
+class Fused_Scaled_Conv2d_Downscale2d(Layer):
 
     def __init__(self, fmaps, kernel_size, gain=HE_GAIN,
                  use_wscale=True, truncate_weights=DEFAULT_TRUNCATE_WEIGHTS,
-                 dtype=DEFAULT_DTYPE, data_format=DEFAULT_DATA_FORMAT, name=None):
-        super(Fused_Scaled_Conv2d_Downsacle2d, self).__init__(dtype=dtype, name=name)
+                 use_xla=DEFAULT_USE_XLA, dtype=DEFAULT_DTYPE,
+                 data_format=DEFAULT_DATA_FORMAT, name=None):
+        super(Fused_Scaled_Conv2d_Downscale2d, self).__init__(dtype=dtype, name=name)
         assert kernel_size >= 1 and kernel_size % 2 == 1
         validate_data_format(data_format)
         self.data_format = data_format
@@ -363,6 +379,8 @@ class Fused_Scaled_Conv2d_Downsacle2d(Layer):
         self.gain = gain
         self.use_wscale = use_wscale
         self.truncate_weights = truncate_weights
+        self.use_xla = use_xla
+        #self.call = tf.function(self.call, experimental_compile=self.use_xla)
 
     def build(self, input_shape):
         if self.data_format == NCHW_FORMAT:
@@ -381,12 +399,12 @@ class Fused_Scaled_Conv2d_Downsacle2d(Layer):
             initializer = select_initializer(self.truncate_weights, 1.)
         else:
             initializer = select_initializer(self.truncate_weights, self.std)
+
         self.w = self.add_weight(
             name=WEIGHTS_NAME,
             shape=self.wshape,
             initializer=initializer,
-            trainable=True,
-            dtype=self.dtype
+            trainable=True
         )
 
     @tf.function

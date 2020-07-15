@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from utils import DEFAULT_DTYPE, DEFAULT_DATA_FORMAT, NCHW_FORMAT,\
     DEFAULT_DATASET_N_PARALLEL_CALLS, DEFAULT_DATASET_N_PREFETCHED_BATCHES,\
-    DEFAULT_SHUFFLE_DATASET, validate_data_format
+    DEFAULT_SHUFFLE_DATASET, DEFAULT_MIRROR_AUGMENT, validate_data_format
 
 MAX_CACHE_RESOLUTION = 7
 
@@ -16,15 +16,16 @@ def load_image(file_path, dtype=DEFAULT_DTYPE):
     return image
 
 
-def preprocess_image(image, res):
+def preprocess_image(image, res, mirror_augment=DEFAULT_MIRROR_AUGMENT):
     image = tf.image.resize(
         image,
         size=(2 ** res, 2 ** res),
         method=tf.image.ResizeMethod.NEAREST_NEIGHBOR
     )
-    # Augmentations
-    if tf.random.uniform(()) > 0.5:
-        image = tf.image.flip_left_right(image)
+    if mirror_augment:
+        # Augmentations
+        if tf.random.uniform(()) > 0.5:
+            image = tf.image.flip_left_right(image)
     return image
 
 
@@ -37,8 +38,7 @@ def restore_images(images):
     return tf.cast((images + 1.) * 127.5, dtype=tf.uint8)
 
 
-def convert_outputs_to_images(net_outputs, target_single_image_size,
-                              data_format=DEFAULT_DATA_FORMAT):
+def convert_outputs_to_images(net_outputs, target_single_image_size, data_format=DEFAULT_DATA_FORMAT):
     # Note: should work for linear and tanh activation
     validate_data_format(data_format)
     x = tf.clip_by_value(net_outputs, -1., 1.)
@@ -53,11 +53,13 @@ def convert_outputs_to_images(net_outputs, target_single_image_size,
     return x
 
 
-def load_and_preprocess_image(file_path, res, dtype=DEFAULT_DTYPE,
+def load_and_preprocess_image(file_path, res,
+                              mirror_augment=DEFAULT_MIRROR_AUGMENT,
+                              dtype=DEFAULT_DTYPE,
                               data_format=DEFAULT_DATA_FORMAT):
     validate_data_format(data_format)
     image = load_image(file_path, dtype)
-    image = preprocess_image(image, res)
+    image = preprocess_image(image, res, mirror_augment)
     image = normalize_images(image)
     if data_format == NCHW_FORMAT:
         image = tf.transpose(image, [2, 0, 1])
@@ -65,6 +67,7 @@ def load_and_preprocess_image(file_path, res, dtype=DEFAULT_DTYPE,
 
 
 def create_training_dataset(fpaths, res, cache, batch_size,
+                            mirror_augment=DEFAULT_MIRROR_AUGMENT,
                             shuffle_dataset=DEFAULT_SHUFFLE_DATASET,
                             dtype=DEFAULT_DTYPE,
                             data_format=DEFAULT_DATA_FORMAT,
@@ -81,7 +84,7 @@ def create_training_dataset(fpaths, res, cache, batch_size,
 
     ds = ds.map(
         lambda x: load_and_preprocess_image(
-            x, res=res, dtype=dtype, data_format=data_format
+            x, res=res, mirror_augment=mirror_augment, dtype=dtype, data_format=data_format
         ),
         num_parallel_calls=n_parallel_calls
     )
