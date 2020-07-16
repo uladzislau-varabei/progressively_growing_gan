@@ -22,5 +22,8 @@ logs
 tf_logs
 weights
 
+# Some folders
+Data
+
 
 
