@@ -170,16 +170,19 @@ class ProGAN():
             self.Gs_object.initialize_G_model(model_res=model_res, mode=mode)
 
             for res in range(self.start_resolution_log2, model_res + 1):
+                print(f'\nSetting Gs weights to a block for res={res}...')
                 self.Gs_object.G_blocks[res].set_weights(
                     self.G_object.G_blocks[res].get_weights()
                 )
                 # A terrible way to check if toRGB layer is built. Should change it later
                 try:
+                    print(f'\nSetting Gs weights to toRGB layer for res={res}...')
                     lod = level_of_details(res, self.resolution_log2)
                     self.Gs_object.toRGB_layers[lod].set_weights(
                         self.G_object.toRGB_layers[lod].get_weights()
                     )
                 except ValueError:
+                    print(f'\ntoRGB layer is not built for res={res}')
                     logging.info(f'toRGB layer is not built for res={res}')
         else:
             self.Gs_object.initialize_G_model(summary_model=False)

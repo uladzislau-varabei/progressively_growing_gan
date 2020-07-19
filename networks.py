@@ -122,7 +122,7 @@ class Generator():
                 factor=2, dtype=self.policy, data_format=self.data_format,
                 name='Upscale2D_%dx%d' % (2 ** res, 2 ** res)
             )
-            for res in range(self.start_resolution_log2, self.resolution_log2 + 1)
+            for res in range(2, self.resolution_log2 + 1)
         }
         self.G_wsum_layers = {
             lod: Weighted_sum(dtype=self.policy, name=f'G_{WSUM_NAME}_{LOD_NAME}{lod}')
@@ -133,11 +133,11 @@ class Generator():
             dtype=self.policy, data_format=self.data_format, name='Latents_normalizer'
         )
         self.G_blocks = {
-            res: self.G_block(res) for res in range(self.start_resolution_log2, self.resolution_log2 + 1)
+            res: self.G_block(res) for res in range(2, self.resolution_log2 + 1)
         }
         self.toRGB_layers = {
             level_of_details(res, self.resolution_log2): self.to_rgb(res)
-            for res in range(self.start_resolution_log2, self.resolution_log2 + 1)
+            for res in range(2, self.resolution_log2 + 1)
         }
 
     def to_rgb(self, res):
@@ -485,7 +485,7 @@ class Discriminator():
             res: Downscale2d(
                 factor=2, dtype=self.policy, data_format=self.data_format,
                 name='Downscale2D_%dx%d' % (2 ** res, 2 ** res)
-            ) for res in range(self.start_resolution_log2, self.resolution_log2 + 1)
+            ) for res in range(2, self.resolution_log2 + 1)
         }
         self.D_wsum_layers = {
             lod: Weighted_sum(dtype=self.policy, name=f'D_{WSUM_NAME}_{LOD_NAME}{lod}')
@@ -495,14 +495,14 @@ class Discriminator():
             res: Input(
                 shape=self.D_input_shape(res), dtype=self.compute_dtype,
                 name='Images_%dx%d' % (2 ** res, 2 ** res)
-            ) for res in range(self.start_resolution_log2, self.resolution_log2 + 1)
+            ) for res in range(2, self.resolution_log2 + 1)
         }
         self.D_blocks = {
-            res: self.D_block(res) for res in range(self.start_resolution_log2, self.resolution_log2 + 1)
+            res: self.D_block(res) for res in range(2, self.resolution_log2 + 1)
         }
         self.fromRGB_layers = {
             level_of_details(res, self.resolution_log2): self.from_rgb(res)
-            for res in range(self.start_resolution_log2, self.resolution_log2 + 1)
+            for res in range(2, self.resolution_log2 + 1)
         }
 
     def from_rgb(self, res):
