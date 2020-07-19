@@ -124,6 +124,6 @@ def fast_save_grid(out_dir, fname, images, nrows, ncols, padding, title, save_in
         os.makedirs(out_dir)
 
     if save_in_jpg:
-        img.save(os.path.join(out_dir, fname + '.jpg'), 'JPEG', quality=95)
+        img.save(os.path.join(out_dir, fname + '.jpg'), 'JPEG', quality=95, optimize=True)
     else:
         img.save(os.path.join(out_dir, fname + '.png'), 'PNG')

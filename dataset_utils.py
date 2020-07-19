@@ -9,26 +9,6 @@ from utils import DEFAULT_DTYPE, DEFAULT_DATA_FORMAT, NCHW_FORMAT,\
 MAX_CACHE_RESOLUTION = 7
 
 
-def load_image(file_path, dtype=DEFAULT_DTYPE):
-    image = tf.io.read_file(file_path)
-    image = tf.image.decode_jpeg(image, channels=3)
-    image = tf.image.convert_image_dtype(image, dtype=dtype)
-    return image
-
-
-def preprocess_image(image, res, mirror_augment=DEFAULT_MIRROR_AUGMENT):
-    image = tf.image.resize(
-        image,
-        size=(2 ** res, 2 ** res),
-        method=tf.image.ResizeMethod.NEAREST_NEIGHBOR
-    )
-    if mirror_augment:
-        # Augmentations
-        if tf.random.uniform(()) > 0.5:
-            image = tf.image.flip_left_right(image)
-    return image
-
-
 def normalize_images(images):
     # Scaling is performed with the function convert_image_dtype
     return 2 * images - 1.
@@ -53,13 +33,38 @@ def convert_outputs_to_images(net_outputs, target_single_image_size, data_format
     return x
 
 
+def load_image(file_path, dtype=DEFAULT_DTYPE):
+    image = tf.io.read_file(file_path)
+    image = tf.image.decode_jpeg(image, channels=3)
+    image = tf.image.convert_image_dtype(image, dtype=dtype)
+    return image
+
+
+def preprocess_image(image, res, mirror_augment=DEFAULT_MIRROR_AUGMENT, dtype=DEFAULT_DTYPE):
+    # Image is resized according to a paper implementation (PIL.Image.ANTIALIAS was used)
+    image = tf.image.resize(
+        image,
+        size=(2 ** res, 2 ** res),
+        method=tf.image.ResizeMethod.LANCZOS3,
+        antialias=True
+    )
+    # Dtype and range might change due to resizing
+    image = tf.cast(image, dtype)
+    image = tf.clip_by_value(image, 0.0, 1.0)
+    if mirror_augment:
+        # Augmentations
+        if tf.random.uniform(()) > 0.5:
+            image = tf.image.flip_left_right(image)
+    return image
+
+
 def load_and_preprocess_image(file_path, res,
                               mirror_augment=DEFAULT_MIRROR_AUGMENT,
                               dtype=DEFAULT_DTYPE,
                               data_format=DEFAULT_DATA_FORMAT):
     validate_data_format(data_format)
     image = load_image(file_path, dtype)
-    image = preprocess_image(image, res, mirror_augment)
+    image = preprocess_image(image, res, mirror_augment, dtype)
     image = normalize_images(image)
     if data_format == NCHW_FORMAT:
         image = tf.transpose(image, [2, 0, 1])

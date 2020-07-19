@@ -111,7 +111,8 @@ class ProGAN():
         self.valid_grid_nrows = 10
         self.valid_grid_ncols = 10
         self.valid_grid_padding = 2
-        self.min_target_single_image_size = 2 ** 6
+        self.min_target_single_image_size = 2 ** 7
+        self.max_png_res = 5
         self.valid_latents = self.generate_latents(self.valid_grid_nrows * self.valid_grid_ncols)
 
         self.logs_path = os.path.join(TF_LOGS_DIR, self.model_name)
@@ -533,8 +534,17 @@ class ProGAN():
         if smoothed:
             dir_stage += SMOOTH_POSTFIX
 
+        digits_in_number = 6
+        fname = ('%0' + str(digits_in_number) + 'd') % step
+
         valid_images_dir = create_images_dir_name(self.model_name, res, dir_stage)
-        valid_images_grid_title = create_images_grid_title(res, dir_stage, step)
+        use_grid_title = False
+        if use_grid_title:
+            valid_images_grid_title = create_images_grid_title(res, dir_stage, step)
+        else:
+            valid_images_grid_title = None
+
+        save_in_jpg = res > self.max_png_res
 
         if smoothed:
             valid_images = self.Gs_model(self.Gs_valid_latents)
@@ -552,12 +562,13 @@ class ProGAN():
 
         fast_save_grid(
             out_dir=valid_images_dir,
-            fname=str(step),
+            fname=fname,
             images=valid_images,
             title=valid_images_grid_title,
             nrows=self.valid_grid_nrows,
             ncols=self.valid_grid_ncols,
-            padding=self.valid_grid_padding
+            padding=self.valid_grid_padding,
+            save_in_jpg=save_in_jpg
         )
 
     @tf.function
