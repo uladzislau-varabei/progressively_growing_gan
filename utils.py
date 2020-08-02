@@ -80,7 +80,7 @@ RESET_OPT_STATE_FOR_NEW_LOD = 'reset_opt_state_for_new_lod'
 BATCH_SIZES = 'batch_sizes'
 # Max resolution of images to cache dataset (int, 2...max_resolution_log2)
 # Note: only use this option of dataset is not very big and there is lots of available memory
-MAX_CACHE_RES = 'max_cache_res'
+DATASET_MAX_CACHE_RES = 'dataset_max_cache_res'
 # Path to a file with images paths
 IMAGES_PATHS_FILENAME = 'images_paths_filename'
 # Target resolution (should be a power of 2, e.g. 128, 256, etc.)
@@ -151,10 +151,13 @@ MBSTD_GROUP_SIZE = 'mbstd_group_size'
 # it was meant to keep number of parameters in generator and discriminator at roughly
 # the same level
 D_PROJECTING_NF = 'D_projecting_nf'
-# Use smoothing og generator weights?
+# Use smoothing of generator weights?
 USE_G_SMOOTHING = 'use_G_smoothing'
 # Beta for smoothing weights of generator
 G_SMOOTHING_BETA = 'G_smoothed_beta'
+# Use GPU for smoothed generator?
+# Note: setting this option to False saves GPU memory
+USE_GPU_FOR_GS = 'use_GPU_for_Gs'
 # Number of parallel calls to dataset
 # Note: a good choice is to use a number of cpu cores
 DATASET_N_PARALLEL_CALLS = 'dataset_n_parallel_calls'
@@ -174,7 +177,7 @@ DEFAULT_MAX_MODELS_TO_KEEP = 3
 DEFAULT_SUMMARY_EVERY = 500
 DEFAULT_SAVE_MODEL_EVERY = 5000
 DEFAULT_SAVE_IMAGES_EVERY = 500
-DEFAULT_MAX_CACHE_RES = -1
+DEFAULT_DATASET_MAX_CACHE_RES = -1
 DEFAULT_START_RESOLUTION = 4
 DEFAULT_NORMALIZE_LATENTS = True
 DEFAULT_USE_BIAS = True
@@ -200,6 +203,7 @@ DEFAULT_ADAM_BETA2 = 0.99
 DEFAULT_RESET_OPT_STATE_FOR_NEW_LOD = True
 DEFAULT_USE_G_SMOOTHING = True
 DEFAULT_G_SMOOTHING_BETA = 0.999
+DEFAULT_USE_GPU_FOR_GS = True
 DEFAULT_DATASET_N_PARALLEL_CALLS = 4
 DEFAULT_DATASET_N_PREFETCHED_BATCHES = 4
 DEFAULT_DATASET_N_MAX_IMAGES = -1
@@ -249,15 +253,15 @@ def fp32(*values):
     return [tf.cast(v, tf.float32) for v in values]
 
 
-def scale_loss(optimizer, loss, mixed_precision):
+def scale_loss(loss, optimizer, mixed_precision):
     return optimizer.get_scaled_loss(loss) if mixed_precision else loss
 
 
-def unscale_grads(optimizer, grads, mixed_precision):
+def unscale_grads(grads, optimizer, mixed_precision):
     return optimizer.get_unscaled_gradients(grads) if mixed_precision else grads
 
 
-def custom_unscale_grads_in_mixed_precision(optimizer, grads, vars):
+def custom_unscale_grads_in_mixed_precision(grads, optimizer, vars):
     # Note: works inside tf.function
     # All grads are casted to fp32
     dtype = tf.float32

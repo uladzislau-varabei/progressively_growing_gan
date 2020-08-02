@@ -9,20 +9,34 @@ from utils import DEFAULT_DTYPE, DEFAULT_DATA_FORMAT, NCHW_FORMAT,\
 MAX_CACHE_RESOLUTION = 7
 
 
+def adjust_dynamic_range(data, drange_in, drange_out):
+    """
+    Adjusts ranges of images, e.g. from [0, 1] to [0, 255]
+    """
+    if drange_in != drange_out:
+        scale = (drange_out[1] - drange_out[0]) / (drange_in[1] - drange_in[0])
+        bias = (drange_out[0] - drange_in[0]) * scale
+        data = data * scale + bias
+    return data
+
+
 def normalize_images(images):
     # Scaling is performed with the function convert_image_dtype
     return 2 * images - 1.
 
 
 def restore_images(images):
-    return tf.cast((images + 1.) * 127.5, dtype=tf.uint8)
+    # Minimum OP doesn't support uint8
+    images = tf.math.round((images + 1.) * 127.5)
+    images = tf.clip_by_value(tf.cast(images, dtype=tf.int32), 0, 255)
+    images = tf.cast(images, dtype=tf.uint8)
+    return images
 
 
 def convert_outputs_to_images(net_outputs, target_single_image_size, data_format=DEFAULT_DATA_FORMAT):
     # Note: should work for linear and tanh activation
     validate_data_format(data_format)
-    x = tf.clip_by_value(net_outputs, -1., 1.)
-    x = restore_images(x)
+    x = restore_images(net_outputs)
     if data_format == NCHW_FORMAT:
         x = tf.transpose(x, [0, 2, 3, 1])
     x = tf.image.resize(

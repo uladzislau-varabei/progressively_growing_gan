@@ -172,6 +172,7 @@ if __name__ == '__main__':
     if single_process_training:
         prepare_gpu()
         ProGAN_model = ProGAN(config, mode=TRAIN_MODE, single_process_training=True)
+        ProGAN_model.trace_graphs()
         ProGAN_model.train()
     else:
         train_model(config)

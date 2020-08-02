@@ -21,11 +21,11 @@ from utils import TARGET_RESOLUTION, START_RESOLUTION, LATENT_SIZE, USE_MIXED_PR
     G_LEARNING_RATE, D_LEARNING_RATE, \
     G_LEARNING_RATE_DICT, D_LEARNING_RATE_DICT,\
     ADAM_BETA1, ADAM_BETA2, RESET_OPT_STATE_FOR_NEW_LOD,\
-    USE_G_SMOOTHING, G_SMOOTHING_BETA,\
+    USE_G_SMOOTHING, G_SMOOTHING_BETA, USE_GPU_FOR_GS,\
     GENERATOR_NAME, DISCRIMINATOR_NAME,\
     NCHW_FORMAT, NHWC_FORMAT,\
     TF_LOGS_DIR, STORAGE_PATH, DATASET_CACHE_FOLDER,\
-    BATCH_SIZES, MAX_CACHE_RES, IMAGES_PATHS_FILENAME,\
+    BATCH_SIZES, DATASET_MAX_CACHE_RES, IMAGES_PATHS_FILENAME,\
     FADE_IN_IMAGES, STABILIZATION_IMAGES,\
     DATASET_N_PARALLEL_CALLS, DATASET_N_PREFETCHED_BATCHES, DATASET_N_MAX_IMAGES,\
     SHUFFLE_DATASET, MIRROR_AUGMENT,\
@@ -35,12 +35,13 @@ from utils import DEFAULT_STORAGE_PATH, DEFAULT_MAX_MODELS_TO_KEEP,\
     DEFAULT_G_LEARNING_RATE, DEFAULT_D_LEARNING_RATE,\
     DEFAULT_G_LEARNING_RATE_DICT, DEFAULT_D_LEARNING_RATE_DICT,\
     DEFAULT_ADAM_BETA1, DEFAULT_ADAM_BETA2, DEFAULT_RESET_OPT_STATE_FOR_NEW_LOD,\
-    DEFAULT_MAX_CACHE_RES,\
+    DEFAULT_DATASET_MAX_CACHE_RES,\
     DEFAULT_START_RESOLUTION, DEFAULT_USE_MIXED_PRECISION,\
     DEFAULT_DATASET_N_PARALLEL_CALLS,\
     DEFAULT_DATASET_N_PREFETCHED_BATCHES, DEFAULT_DATASET_N_MAX_IMAGES,\
     DEFAULT_SHUFFLE_DATASET, DEFAULT_MIRROR_AUGMENT,\
-    DEFAULT_USE_G_SMOOTHING, DEFAULT_G_SMOOTHING_BETA, DEFAULT_DATA_FORMAT
+    DEFAULT_USE_G_SMOOTHING, DEFAULT_G_SMOOTHING_BETA, DEFAULT_USE_GPU_FOR_GS,\
+    DEFAULT_DATA_FORMAT
 from dataset_utils import create_training_dataset, convert_outputs_to_images
 from image_utils import fast_save_grid
 from networks import Generator, Discriminator
@@ -58,6 +59,9 @@ class ProGAN():
         self.start_resolution = config.get(START_RESOLUTION, DEFAULT_START_RESOLUTION)
         self.start_resolution_log2 = int(np.log2(self.start_resolution))
         assert self.start_resolution == 2 ** self.start_resolution_log2 and self.start_resolution >= 4
+
+        self.min_lod = level_of_details(self.resolution_log2, self.resolution_log2)
+        self.max_lod = level_of_details(self.start_resolution_log2, self.resolution_log2)
 
         self.data_format = config.get(DATA_FORMAT, DEFAULT_DATA_FORMAT)
         validate_data_format(self.data_format)
@@ -84,6 +88,7 @@ class ProGAN():
         self.smoothed_beta = tf.constant(
             config.get(G_SMOOTHING_BETA, DEFAULT_G_SMOOTHING_BETA), dtype='float32'
         )
+        self.use_gpu_for_Gs = config.get(USE_GPU_FOR_GS, DEFAULT_USE_GPU_FOR_GS)
         self.shuffle_dataset = config.get(
             SHUFFLE_DATASET, DEFAULT_SHUFFLE_DATASET
         )
@@ -96,6 +101,7 @@ class ProGAN():
         self.dataset_n_max_images = config.get(
             DATASET_N_MAX_IMAGES, DEFAULT_DATASET_N_MAX_IMAGES
         )
+        self.dataset_max_cache_res = config.get(DATASET_MAX_CACHE_RES, DEFAULT_DATASET_MAX_CACHE_RES)
         self.mirror_augment = config.get(MIRROR_AUGMENT, DEFAULT_MIRROR_AUGMENT)
 
         self.G_learning_rate = config.get(G_LEARNING_RATE, DEFAULT_G_LEARNING_RATE)
@@ -135,12 +141,19 @@ class ProGAN():
         self.D_object = Discriminator(config)
 
         if self.use_Gs:
-            cpu_config = config
-            cpu_config[DATA_FORMAT] = NHWC_FORMAT
-            # NCHW -> NHWC
-            self.toNHWC_axis = [0, 2, 3, 1]
-            self.Gs_valid_latents = tf.transpose(self.valid_latents, self.toNHWC_axis)
-            self.Gs_object = Generator(cpu_config)
+            Gs_config = config
+            self.Gs_valid_latents = self.valid_latents
+            self.Gs_device = '/GPU:0' if self.use_gpu_for_Gs else '/CPU:0'
+
+            if not self.use_gpu_for_Gs:
+                Gs_config[DATA_FORMAT] = NHWC_FORMAT
+                # NCHW -> NHWC
+                self.toNHWC_axis = [0, 2, 3, 1]
+                # NCHW -> NHWC -> NCHW
+                self.toNCHW_axis = [0, 3, 1, 2]
+                self.Gs_valid_latents = tf.transpose(self.valid_latents, self.toNHWC_axis)
+
+            self.Gs_object = Generator(Gs_config)
 
         if mode == INFERENCE_MODE:
             self.initialize_models()
@@ -158,8 +171,7 @@ class ProGAN():
         self.G_object.initialize_G_model(model_res=model_res, mode=stage)
         self.D_object.initialize_D_model(model_res=model_res, mode=stage)
         if self.use_Gs:
-            # Save memory on GPU
-            with tf.device('/CPU:0'):
+            with tf.device(self.Gs_device):
                 self.initialize_Gs_model(model_res=model_res, mode=stage)
 
     def initialize_Gs_model(self, model_res=None, mode=None):
@@ -169,29 +181,27 @@ class ProGAN():
         if model_res is not None:
             self.Gs_object.initialize_G_model(model_res=model_res, mode=mode)
 
-            for res in range(self.start_resolution_log2, model_res + 1):
-                print(f'\nSetting Gs weights to a block for res={res}...')
+            for res in range(2, model_res + 1):
                 self.Gs_object.G_blocks[res].set_weights(
                     self.G_object.G_blocks[res].get_weights()
                 )
-                # A terrible way to check if toRGB layer is built. Should change it later
-                try:
-                    print(f'\nSetting Gs weights to toRGB layer for res={res}...')
-                    lod = level_of_details(res, self.resolution_log2)
-                    self.Gs_object.toRGB_layers[lod].set_weights(
-                        self.G_object.toRGB_layers[lod].get_weights()
-                    )
-                except ValueError:
-                    print(f'\ntoRGB layer is not built for res={res}')
-                    logging.info(f'toRGB layer is not built for res={res}')
-        else:
-            self.Gs_object.initialize_G_model(summary_model=False)
 
-            for res in range(self.start_resolution_log2, self.resolution_log2 + 1):
+            min_lod = level_of_details(model_res, self.resolution_log2)
+            max_lod = min_lod + (1 if mode == FADE_IN_MODE else 0)
+
+            for lod in range(min_lod, max_lod + 1):
+                self.Gs_object.toRGB_layers[lod].set_weights(
+                    self.G_object.toRGB_layers[lod].get_weights()
+                )
+        else:
+            self.Gs_object.initialize_G_model()
+
+            for res in range(2, self.resolution_log2 + 1):
                 self.Gs_object.G_blocks[res].set_weights(
                     self.G_object.G_blocks[res].get_weights()
                 )
-                lod = level_of_details(res, self.resolution_log2)
+
+            for lod in range(self.min_lod, self.max_lod + 1):
                 self.Gs_object.toRGB_layers[lod].set_weights(
                     self.G_object.toRGB_layers[lod].get_weights()
                 )
@@ -202,8 +212,16 @@ class ProGAN():
     def trace_graphs(self):
         self.G_object.trace_G_graphs(self.summary_writers, self.writers_dirs)
         self.D_object.trace_D_graphs(self.summary_writers, self.writers_dirs)
-        self.G_object.initialize_G_model(summary_model=True)
-        self.D_object.initialize_D_model(summary_model=True)
+
+        self.G_object.initialize_G_model(model_res=self.resolution_log2, mode=FADE_IN_MODE)
+        G_model = self.G_object.create_G_model(res=self.resolution_log2, mode=FADE_IN_MODE)
+        logging.info('\nThe biggest Generator:\n')
+        G_model.summary(print_fn=logging.info)
+
+        self.D_object.initialize_D_model(model_res=self.resolution_log2, mode=FADE_IN_MODE)
+        D_model = self.D_object.create_D_model(res=self.resolution_log2, mode=FADE_IN_MODE)
+        logging.info('\nThe biggest Discriminator:\n')
+        D_model.summary(print_fn=logging.info)
 
     def validate_config(self):
         for res in range(self.start_resolution_log2, self.resolution_log2 + 1):
@@ -246,12 +264,12 @@ class ProGAN():
             fake_scores = fp32(D_model(fake_images))
 
             G_loss = G_loss_fn(fake_scores, write_summary=write_summary, step=step)
-            G_loss = scale_loss(self.G_optimizer, G_loss, self.use_mixed_precision)
+            G_loss = scale_loss(G_loss, self.G_optimizer, self.use_mixed_precision)
             print('G loss computed')
 
         # No need to update weights!
         G_grads = mult_by_zero(G_tape.gradient(G_loss, G_vars))
-        G_grads = unscale_grads(self.G_optimizer, G_grads, self.use_mixed_precision)
+        G_grads = unscale_grads(G_grads, self.G_optimizer, self.use_mixed_precision)
         print('G gradients obtained')
 
         self.G_optimizer.apply_gradients(zip(G_grads, G_vars))
@@ -269,12 +287,12 @@ class ProGAN():
             with tf.GradientTape() as tape:
                 to_outputs = to_layer(to_inputs)
                 loss = tf.reduce_mean(tf.square(to_outputs))
-                loss = scale_loss(self.G_optimizer, loss, self.use_mixed_precision)
+                loss = scale_loss(loss, self.G_optimizer, self.use_mixed_precision)
 
             G_vars = to_layer.trainable_variables
             # No need to update weights!
             G_grads = mult_by_zero(tape.gradient(loss, G_vars))
-            G_grads = unscale_grads(self.G_optimizer, G_grads, self.use_mixed_precision)
+            G_grads = unscale_grads(G_grads, self.G_optimizer, self.use_mixed_precision)
             self.G_optimizer.apply_gradients(zip(G_grads, G_vars))
 
         print('G optimizer slots created!')
@@ -323,12 +341,12 @@ class ProGAN():
                 fake_scores=fake_scores, fake_images=fake_images,
                 write_summary=write_summary, step=step
             )
-            D_loss = scale_loss(self.D_optimizer, D_loss, self.use_mixed_precision)
+            D_loss = scale_loss(D_loss, self.D_optimizer, self.use_mixed_precision)
             print('D loss computed')
 
         # No need to update weights!
         D_grads = mult_by_zero(D_tape.gradient(D_loss, D_vars))
-        D_grads = unscale_grads(self.D_optimizer, D_grads, self.use_mixed_precision)
+        D_grads = unscale_grads(D_grads, self.D_optimizer, self.use_mixed_precision)
         print('D gradients obtained')
 
         self.D_optimizer.apply_gradients(zip(D_grads, D_vars))
@@ -346,12 +364,12 @@ class ProGAN():
             with tf.GradientTape() as tape:
                 from_outputs = from_layer(from_inputs)
                 loss = tf.reduce_mean(tf.square(from_outputs))
-                loss = scale_loss(self.D_optimizer, loss, self.use_mixed_precision)
+                loss = scale_loss(loss, self.D_optimizer, self.use_mixed_precision)
 
             D_vars = from_layer.trainable_variables
             # No need to update weights!
             D_grads = mult_by_zero(tape.gradient(loss, D_vars))
-            D_grads = unscale_grads(self.D_optimizer, D_grads, self.use_mixed_precision)
+            D_grads = unscale_grads(D_grads, self.D_optimizer, self.use_mixed_precision)
             self.D_optimizer.apply_gradients(zip(D_grads, D_vars))
 
         print('D optimizer slots created!')
@@ -401,7 +419,7 @@ class ProGAN():
         trace_vars(smoothed_net_vars, 'Smoothed vars:')
         trace_vars(source_net_vars, 'Source vars:')
 
-        with tf.device('/CPU:0'):
+        with tf.device(self.Gs_device):
             for a, b in zip(smoothed_net_vars, source_net_vars):
                 a.assign(b + (a - b) * beta)
 
@@ -423,17 +441,15 @@ class ProGAN():
 
         logging.info(f'Total number of images: {len(images_paths)}')
 
-        max_cache_res = config.get(MAX_CACHE_RES, DEFAULT_MAX_CACHE_RES)
         self.images_generators = {}
 
         for res in tqdm(range(self.start_resolution_log2, self.resolution_log2 + 1), desc='Generator res'):
             # No caching by default
             cache = False
-            if res <= max_cache_res:
+            if res <= self.dataset_max_cache_res:
                 cache = os.path.join(DATASET_CACHE_FOLDER, self.model_name, str(res))
                 if STORAGE_PATH is not None:
                     cache = os.path.join(STORAGE_PATH, cache)
-
                 if not os.path.exists(cache):
                     os.makedirs(cache)
 
@@ -458,15 +474,12 @@ class ProGAN():
         start_time = time.time()
         print(f'Initializing images generator for res={res}...')
 
-        max_cache_res = config.get(MAX_CACHE_RES, DEFAULT_MAX_CACHE_RES)
-
         # No caching by default
         cache = False
-        if res <= max_cache_res:
+        if res <= self.dataset_max_cache_res:
             cache = os.path.join(DATASET_CACHE_FOLDER, self.model_name, str(res))
             if STORAGE_PATH is not None:
                 cache = os.path.join(STORAGE_PATH, cache)
-
             if not os.path.exists(cache):
                 os.makedirs(cache)
 
@@ -551,9 +564,8 @@ class ProGAN():
 
         if smoothed:
             valid_images = self.Gs_model(self.Gs_valid_latents)
-            # NCHW -> NHWC -> NCHW
-            self.toNCHW_axis = [0, 3, 1, 2]
-            valid_images = tf.transpose(valid_images, self.toNCHW_axis)
+            if not self.use_gpu_for_Gs:
+                valid_images = tf.transpose(valid_images, self.toNCHW_axis)
         else:
             valid_images = self.G_model(self.valid_latents)
 
@@ -594,10 +606,10 @@ class ProGAN():
             fake_scores = fp32(D_model(fake_images))
 
             G_loss = G_loss_fn(fake_scores, write_summary=write_summary, step=step)
-            G_loss = scale_loss(self.G_optimizer, G_loss, self.use_mixed_precision)
+            G_loss = scale_loss(G_loss, self.G_optimizer, self.use_mixed_precision)
 
         G_grads = G_tape.gradient(G_loss, G_vars)
-        G_grads = unscale_grads(self.G_optimizer, G_grads, self.use_mixed_precision)
+        G_grads = unscale_grads(G_grads, self.G_optimizer, self.use_mixed_precision)
         self.G_optimizer.apply_gradients(zip(G_grads, G_vars))
 
         if write_summary:
@@ -631,10 +643,10 @@ class ProGAN():
                 fake_scores=fake_scores, fake_images=fake_images,
                 write_summary=write_summary, step=step
             )
-            D_loss = scale_loss(self.D_optimizer, D_loss, self.use_mixed_precision)
+            D_loss = scale_loss(D_loss, self.D_optimizer, self.use_mixed_precision)
 
         D_grads = D_tape.gradient(D_loss, D_vars)
-        D_grads = unscale_grads(self.D_optimizer, D_grads, self.use_mixed_precision)
+        D_grads = unscale_grads(D_grads, self.D_optimizer, self.use_mixed_precision)
         self.D_optimizer.apply_gradients(zip(D_grads, D_vars))
 
         if write_summary:
@@ -721,6 +733,7 @@ class ProGAN():
                             G_latents=G_latents, D_latents=D_latents, images=batch_images,
                             write_summary=tWriteSummary, step=tStep
                         )
+
                         if self.use_Gs:
                             self.smooth_net_weights(
                                 Gs_model=self.Gs_model, G_model=self.G_model, beta=self.smoothed_beta
@@ -778,6 +791,7 @@ class ProGAN():
                         G_latents=G_latents, D_latents=D_latents, images=batch_images,
                         write_summary=tWriteSummary, step=tStep
                     )
+
                     if self.use_Gs:
                         self.smooth_net_weights(
                             Gs_model=self.Gs_model, G_model=self.G_model, beta=self.smoothed_beta
@@ -818,8 +832,7 @@ class ProGAN():
             return int(np.ceil(self.fade_in_images[str(res)] / batch_size))
 
     def load_trained_models(self, res, mode):
-        self.D_model, self.G_model, self.Gs_model = \
-            self.create_models(res, mode=mode)
+        self.D_model, self.G_model, self.Gs_model = self.create_models(res, mode=mode)
 
         step = self.get_n_steps(res, mode) - 1
 
@@ -891,6 +904,7 @@ class ProGAN():
                     G_latents=G_latents, D_latents=D_latents, images=batch_images,
                     write_summary=tWriteSummary, step=tStep
                 )
+
                 if self.use_Gs:
                     self.smooth_net_weights(
                         Gs_model=self.Gs_model, G_model=self.G_model, beta=self.smoothed_beta
@@ -960,6 +974,7 @@ class ProGAN():
                     G_latents=G_latents, D_latents=D_latents, images=batch_images,
                     write_summary=tWriteSummary, step=tStep
                 )
+
                 if self.use_Gs:
                     self.smooth_net_weights(
                         Gs_model=self.Gs_model, G_model=self.G_model, beta=self.smoothed_beta

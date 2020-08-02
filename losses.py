@@ -33,12 +33,12 @@ def D_loss_fn(D_model, optimizer, mixed_precision, real_scores, real_images, fak
     with tf.GradientTape(watch_accessed_variables=False) as tape_gp:
         tape_gp.watch(inter_samples)
         inter_samples_loss = tf.reduce_sum(fp32(D_model(inter_samples)))
-        inter_samples_loss = scale_loss(optimizer, inter_samples_loss, mixed_precision)
+        inter_samples_loss = scale_loss(inter_samples_loss, optimizer, mixed_precision)
     gp_grads = tape_gp.gradient(inter_samples_loss, inter_samples)
     # Default grads unscaling doesn't work inside this function,
     # though it is ok to use it inside train steps
     if mixed_precision:
-        gp_grads = custom_unscale_grads_in_mixed_precision(optimizer, gp_grads, inter_samples)
+        gp_grads = custom_unscale_grads_in_mixed_precision(gp_grads, optimizer, inter_samples)
     gp_grads_norm = tf.sqrt(
         tf.reduce_sum(tf.square(gp_grads), axis=[1, 2, 3])
     )

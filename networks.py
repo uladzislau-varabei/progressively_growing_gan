@@ -53,6 +53,9 @@ class Generator():
         self.start_resolution_log2 = int(np.log2(self.start_resolution))
         assert self.start_resolution == 2 ** self.start_resolution_log2 and self.start_resolution >= 4
 
+        self.min_lod = level_of_details(self.resolution_log2, self.resolution_log2)
+        self.max_lod = level_of_details(self.start_resolution_log2, self.resolution_log2)
+
         self.data_format = config.get(DATA_FORMAT, DEFAULT_DATA_FORMAT)
         validate_data_format(self.data_format)
 
@@ -107,9 +110,6 @@ class Generator():
             self.projecting_target_shape = (
                 self.projecting_mult, self.projecting_mult, self.G_n_filters(2 - 1)
             )
-
-        self.min_lod = level_of_details(self.resolution_log2, self.resolution_log2)
-        self.max_lod = level_of_details(self.start_resolution_log2, self.resolution_log2)
 
         self.create_model_layers()
 
@@ -312,14 +312,13 @@ class Generator():
         )
         return G_model
 
-    def initialize_G_model(self, summary_model=False, model_res=None, mode=None):
+    def initialize_G_model(self, model_res=None, mode=None):
         if model_res is not None:
             batch_size = self.batch_sizes[str(model_res)]
             latents = tf.random.normal(
                 shape=(batch_size,) + self.z_dim, stddev=0.05, dtype=self.compute_dtype
             )
             G_model = self.create_G_model(model_res, mode=mode)
-
             _ = G_model(latents)
         else:
             for res in range(self.start_resolution_log2, self.resolution_log2 + 1):
@@ -328,14 +327,9 @@ class Generator():
                     shape=(batch_size,) + self.z_dim, stddev=0.05, dtype=self.compute_dtype
                 )
                 G_model = self.create_G_model(res, mode=FADE_IN_MODE)
-
                 _ = G_model(latents)
-                if res == self.resolution_log2 and summary_model:
-                    logging.info('\nThe biggest Generator:\n')
-                    G_model.summary(print_fn=logging.info)
 
-        if not summary_model:
-            print('G model built')
+        print('G model built')
 
     def update_G_weights(self, G_model):
         logging.info('\nUpdating G weights...')
@@ -356,16 +350,13 @@ class Generator():
 
     def trace_G_graphs(self, summary_writers, writers_dirs):
         G_prefix = 'Generator_'
-        trace_G_input = tf.random.normal(
-            shape=(1,) + self.z_dim, dtype=self.compute_dtype
-        )
+        trace_G_input = tf.random.normal(shape=(1,) + self.z_dim, dtype=self.compute_dtype)
         for res in range(self.start_resolution_log2, self.resolution_log2 + 1):
             writer = summary_writers[res]
             profiler_dir = writers_dirs[res]
             if res == self.start_resolution_log2:
-                trace_G_model = tf.function(
-                    self.create_G_model(res, mode=STABILIZATION_MODE)
-                )
+                trace_G_model = tf.function(self.create_G_model(res, mode=STABILIZATION_MODE))
+
                 with writer.as_default():
                     tf.summary.trace_on(graph=True, profiler=True)
                     trace_G_model(trace_G_input)
@@ -379,12 +370,9 @@ class Generator():
 
                     writer.flush()
             else:
-                trace_G_model1 = tf.function(
-                    self.create_G_model(res, mode=FADE_IN_MODE)
-                )
-                trace_G_model2 = tf.function(
-                    self.create_G_model(res, mode=STABILIZATION_MODE)
-                )
+                trace_G_model1 = tf.function(self.create_G_model(res, mode=FADE_IN_MODE))
+                trace_G_model2 = tf.function(self.create_G_model(res, mode=STABILIZATION_MODE))
+
                 with writer.as_default():
                     # Fade-in model
                     tf.summary.trace_on(graph=True, profiler=True)
@@ -424,6 +412,9 @@ class Discriminator():
         self.start_resolution = config.get(START_RESOLUTION, DEFAULT_START_RESOLUTION)
         self.start_resolution_log2 = int(np.log2(self.start_resolution))
         assert self.start_resolution == 2 ** self.start_resolution_log2 and self.start_resolution >= 4
+
+        self.min_lod = level_of_details(self.resolution_log2, self.resolution_log2)
+        self.max_lod = level_of_details(self.start_resolution_log2, self.resolution_log2)
 
         self.data_format = config.get(DATA_FORMAT, DEFAULT_DATA_FORMAT)
         validate_data_format(self.data_format)
@@ -465,9 +456,6 @@ class Discriminator():
         # in case latent size is not 512 to make models have almost the same number
         # of trainable params
         self.projecting_nf = config.get(D_PROJECTING_NF, self.D_n_filters(2 - 2))
-
-        self.min_lod = level_of_details(self.resolution_log2, self.resolution_log2)
-        self.max_lod = level_of_details(self.start_resolution_log2, self.resolution_log2)
 
         self.create_model_layers()
 
@@ -516,7 +504,7 @@ class Discriminator():
         return tf.keras.Sequential(conv_layers, name=block_name)
 
     def dense(self, units, gain=None):
-        if gain is None: gain=self.gain
+        if gain is None: gain = self.gain
         return Scaled_Linear(
             units=units, gain=gain,
             use_wscale=self.use_wscale, truncate_weights=self.truncate_weights,
@@ -665,13 +653,12 @@ class Discriminator():
         )
         return D_model
 
-    def initialize_D_model(self, summary_model=False, model_res=None, mode=None):
+    def initialize_D_model(self, model_res=None, mode=None):
         if model_res is not None:
             batch_size = self.batch_sizes[str(model_res)]
             images = tf.random.normal(
                 shape=(batch_size,) + self.D_input_shape(model_res), stddev=0.05, dtype=self.compute_dtype
             )
-
             D_model = self.create_D_model(model_res, mode=mode)
             _ = D_model(images)
         else:
@@ -680,16 +667,10 @@ class Discriminator():
                 images = tf.random.normal(
                     shape=(batch_size,) + self.D_input_shape(res), stddev=0.05, dtype=self.compute_dtype
                 )
-
                 D_model = self.create_D_model(res, mode=FADE_IN_MODE)
                 _ = D_model(images)
 
-                if res == self.resolution_log2 and summary_model:
-                    logging.info('\nThe biggest Discriminator:\n')
-                    D_model.summary(print_fn=logging.info)
-
-        if not summary_model:
-            print('D model built')
+        print('D model built')
 
     def update_D_weights(self, D_model):
         logging.info('\nUpdating D weights...')
@@ -714,14 +695,11 @@ class Discriminator():
             writer = summary_writers[res]
             # Change it later!
             profiler_dir = writers_dirs[res]
-            trace_D_input = tf.random.normal(
-                (1,) + self.D_input_shape(res), dtype=self.compute_dtype
-            )
+            trace_D_input = tf.random.normal((1,) + self.D_input_shape(res), dtype=self.compute_dtype)
 
             if res == self.start_resolution_log2:
-                trace_D_model = tf.function(
-                    self.create_D_model(res, mode=STABILIZATION_MODE)
-                )
+                trace_D_model = tf.function(self.create_D_model(res, mode=STABILIZATION_MODE))
+
                 with writer.as_default():
                     # Fade-in model
                     tf.summary.trace_on(graph=True, profiler=True)
@@ -736,12 +714,9 @@ class Discriminator():
 
                     writer.flush()
             else:
-                trace_D_model1 = tf.function(
-                    self.create_D_model(res, mode=FADE_IN_MODE)
-                )
-                trace_D_model2 = tf.function(
-                    self.create_D_model(res, mode=STABILIZATION_MODE)
-                )
+                trace_D_model1 = tf.function(self.create_D_model(res, mode=FADE_IN_MODE))
+                trace_D_model2 = tf.function(self.create_D_model(res, mode=STABILIZATION_MODE))
+
                 with writer.as_default():
                     # Fade-in model
                     tf.summary.trace_on(graph=True, profiler=True)

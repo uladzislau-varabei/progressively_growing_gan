@@ -48,6 +48,7 @@
     },
     "use_G_smoothing": true,
     "G_smoothed_beta": 0.999,
+    "use_GPU_for_Gs": true,
     "G_fused_scale": true,
     "D_fused_scale": true,
     "reset_opt_state_for_new_lod": true,
